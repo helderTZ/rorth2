@@ -17,6 +17,7 @@ enum OpCode {
     Push,
     Pop,
     Print,
+    Exit,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -106,16 +107,16 @@ struct Token<'a> {
 struct VirtualMachine {
     stack: Vec<Value>,
     ip: usize,
-    sp: usize,
 }
 
 impl VirtualMachine {
     fn new() -> Self {
-        Self { stack: vec![], ip: 0, sp: 0 }
+        Self { stack: vec![], ip: 0 }
     }
 
-    fn execute(&mut self, instructions: &Vec<Instruction>) {
+    fn execute(&mut self, instructions: &Vec<Instruction>) -> bool {
         self.ip = 0;
+        let mut should_exit = false;
         // println!("instructions.len(): {}", instructions.len());
         loop {
             if self.ip < instructions.len() {
@@ -123,42 +124,45 @@ impl VirtualMachine {
                 // println!("ins: {:#?}", ins);
                 match ins {
                     Instruction::OpCode(OpCode::Add) => {
-                        let b = self.stack[self.sp-1].clone();
-                        let a = self.stack[self.sp-2].clone();
-                        self.sp -= 1;
-                        self.stack[self.sp] = a+b;
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(a+b);
                         self.ip += 1;
                     },
                     Instruction::OpCode(OpCode::Sub) => {
-                        let b = self.stack[self.sp-1].clone();
-                        let a = self.stack[self.sp-2].clone();
-                        self.sp -= 1;
-                        self.stack[self.sp] = a-b;
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(a-b);
                         self.ip += 1;
                     },
                     Instruction::OpCode(OpCode::Mul) => {
-                        let b = self.stack[self.sp-1].clone();
-                        let a = self.stack[self.sp-2].clone();
-                        self.sp -= 1;
-                        self.stack[self.sp] = a*b;
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(a*b);
                         self.ip += 1;
                     },
                     Instruction::OpCode(OpCode::Div) => {
-                        let b = self.stack[self.sp-1].clone();
-                        let a = self.stack[self.sp-2].clone();
-                        self.sp -= 1;
-                        self.stack[self.sp] = a/b;
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(a/b);
                         self.ip += 1;
                     },
                     Instruction::OpCode(OpCode::Push) => {
                         let a = instructions[self.ip+1].clone();
                         self.stack.push(a.get_value().expect("Expected a Value in the stack"));
-                        self.sp += 1;
                         self.ip += 2;
                     },
+                    Instruction::OpCode(OpCode::Pop) => {
+                        let _ = self.stack.pop();
+                        self.ip += 1;
+                    },
                     Instruction::OpCode(OpCode::Print) => {
-                        println!("[ {:?} ]", self.stack[self.sp-1]);
+                        println!("[ {:?} ]", self.stack.last().unwrap_or(&Value::Str(String::new())));
                         let _ = io::stdout().flush();
+                        self.ip += 1;
+                    },
+                    Instruction::OpCode(OpCode::Exit) => {
+                        should_exit = true;
                         self.ip += 1;
                     },
                     _ => {
@@ -169,6 +173,7 @@ impl VirtualMachine {
                 break;
             }
         }
+        should_exit
     }
 }
 
@@ -200,6 +205,8 @@ fn codegen(tokens: &[Token]) -> Vec<Instruction> {
                     Some("SWAP") => { opcodes.push(Instruction::OpCode(OpCode::Swap)) },
                     Some("OVER") => { opcodes.push(Instruction::OpCode(OpCode::Over)) },
                     Some("PRINT") => { opcodes.push(Instruction::OpCode(OpCode::Print)) },
+                    Some("POP") => { opcodes.push(Instruction::OpCode(OpCode::Pop)) },
+                    Some("EXIT") => { opcodes.push(Instruction::OpCode(OpCode::Exit)) },
                     Some(itself) => {
                         if declaration_mode {
                             opcodes.push(Instruction::OpCode(OpCode::Define));
@@ -237,7 +244,7 @@ fn parse(command: &str) -> Vec<Token> {
                     "/" => tokens.push(Token { id: TokenId::Slash, itself: None } ),
                     ":" => tokens.push(Token { id: TokenId::Colon, itself: None } ),
                     ";" => tokens.push(Token { id: TokenId::Semicolon, itself: None } ),
-                    "DUP"|"DROP"|"SWAP"|"OVER"|"PRINT" => tokens.push(Token { id: TokenId::Semicolon, itself: Some(word) } ),
+                    "DUP"|"DROP"|"SWAP"|"OVER"|"PRINT"|"POP"|"EXIT" => tokens.push(Token { id: TokenId::Text, itself: Some(word) } ),
                     _ => tokens.push(Token { id: TokenId::Text, itself: Some(&word[1..word.len()-1]) } ),
                 }
             }
@@ -254,11 +261,17 @@ fn main() -> io::Result<()> {
         print!("> ");
         let _ = io::stdout().flush();
         io::stdin().read_line(&mut buffer)?;
+        buffer = buffer.to_uppercase();
         let tokens = parse(&buffer);
         let code = codegen(&tokens);
-        println!("tokens: {:?}", &tokens);
-        println!("code: {:?}", &code);
-        vm.execute(&code);
-        println!("vm: {:?}", &vm);
+        // println!("tokens: {:?}", &tokens);
+        // println!("code: {:?}", &code);
+        if vm.execute(&code) {
+            break;
+        }
+        // println!("vm: {:?}", &vm);
+        buffer.clear();
     }
+
+    Ok(())
 }
