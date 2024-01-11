@@ -98,9 +98,9 @@ impl Instruction {
 }
 
 #[derive(Debug, Clone)]
-struct Token<'a> {
+struct Token {
     id: TokenId,
-    itself: Option<&'a str>,
+    itself: Option<String>,
 }
 
 #[derive(Debug)]
@@ -109,13 +109,17 @@ struct VirtualMachine {
     ip: usize,
 }
 
-impl VirtualMachine {
+impl<'a> VirtualMachine {
     fn new() -> Self {
         Self { stack: vec![], ip: 0 }
     }
 
     fn stack(&self) -> &Vec<Value> {
         &self.stack
+    }
+
+    fn exec(&'a mut self, command: &'a str) -> bool {
+        self.execute(&self.codegen(&self.parse(command)))
     }
 
     fn execute(&mut self, instructions: &Vec<Instruction>) -> bool {
@@ -204,82 +208,112 @@ impl VirtualMachine {
         }
         should_exit
     }
-}
 
-fn codegen(tokens: &[Token]) -> Vec<Instruction> {
-    let mut opcodes: Vec<Instruction> = vec![];
-    let mut declaration_mode = false;
-    let mut definition_mode = false;
-    for tok in tokens.iter() {
-        match tok.id {
-            TokenId::Plus =>  { opcodes.push(Instruction::OpCode(OpCode::Add)); }
-            TokenId::Minus => { opcodes.push(Instruction::OpCode(OpCode::Sub)); }
-            TokenId::Star =>  { opcodes.push(Instruction::OpCode(OpCode::Mul)); }
-            TokenId::Slash => { opcodes.push(Instruction::OpCode(OpCode::Div)); }
-            TokenId::Colon => { declaration_mode = true; }
-            TokenId::Semicolon => {}
-            TokenId::Digit => {
-                if definition_mode {
-                    opcodes.push(Instruction::OpCode(OpCode::Assign));
-                    opcodes.push(Instruction::Value(Value::Int(tok.itself.unwrap().parse::<i32>().unwrap())));
+    fn codegen(&self, tokens: &[Token]) -> Vec<Instruction> {
+        let mut opcodes: Vec<Instruction> = vec![];
+        let mut declaration_mode = false;
+        let mut definition_mode = false;
+        for tok in tokens.iter() {
+            match tok.id {
+                TokenId::Plus =>  { opcodes.push(Instruction::OpCode(OpCode::Add)); }
+                TokenId::Minus => { opcodes.push(Instruction::OpCode(OpCode::Sub)); }
+                TokenId::Star =>  { opcodes.push(Instruction::OpCode(OpCode::Mul)); }
+                TokenId::Slash => { opcodes.push(Instruction::OpCode(OpCode::Div)); }
+                TokenId::Colon => { declaration_mode = true; }
+                TokenId::Semicolon => {}
+                TokenId::Digit => {
+                    if definition_mode {
+                        opcodes.push(Instruction::OpCode(OpCode::Assign));
+                        opcodes.push(Instruction::Value(Value::Int(tok.itself.as_ref().unwrap().parse::<i32>().unwrap())));
+                    } else {
+                        opcodes.push(Instruction::OpCode(OpCode::Push));
+                        opcodes.push(Instruction::Value(Value::Int(tok.itself.as_ref().unwrap().parse::<i32>().unwrap())));
+                    }
+                }
+                TokenId::Text => {
+                    match &tok.itself {
+                        Some(a) => match a.as_str() {
+                            "DUP" =>  { opcodes.push(Instruction::OpCode(OpCode::Dup)) },
+                            "DROP" => { opcodes.push(Instruction::OpCode(OpCode::Drop)) },
+                            "SWAP" => { opcodes.push(Instruction::OpCode(OpCode::Swap)) },
+                            "OVER" => { opcodes.push(Instruction::OpCode(OpCode::Over)) },
+                            "PRINT" => { opcodes.push(Instruction::OpCode(OpCode::Print)) },
+                            "POP" => { opcodes.push(Instruction::OpCode(OpCode::Pop)) },
+                            "EXIT" => { opcodes.push(Instruction::OpCode(OpCode::Exit)) },
+                            itself => {
+                                if declaration_mode {
+                                    opcodes.push(Instruction::OpCode(OpCode::Define));
+                                    opcodes.push(Instruction::Value(Value::Str(String::from(itself))));
+                                    declaration_mode = false;
+                                    definition_mode = true;
+                                } else if definition_mode {
+                                    opcodes.push(Instruction::OpCode(OpCode::Assign));
+                                    opcodes.push(Instruction::Value(Value::Str(String::from(itself))));
+                                    definition_mode = false;
+                                } else {
+                                    opcodes.push(Instruction::OpCode(OpCode::Push));
+                                    opcodes.push(Instruction::Value(Value::Str(String::from(itself))));
+                                }
+                            },
+                        },
+                        None => {},
+                    } 
+                }
+            }
+        }
+
+        opcodes
+    }
+
+    fn parse(&'a self, command: &'a str) -> Vec<Token> {
+        let mut tokens = vec![];
+        let words = command.split_ascii_whitespace().collect::<Vec<&str>>();
+
+        for i in 0..words.len() {
+            let word = words[i];
+
+            if word.starts_with("\"") {
+                if word.ends_with("\"") {
+                    tokens.push(Token { id: TokenId::Text, itself: Some(String::from(word)) } );
                 } else {
-                    opcodes.push(Instruction::OpCode(OpCode::Push));
-                    opcodes.push(Instruction::Value(Value::Int(tok.itself.unwrap().parse::<i32>().unwrap())));
+                    let mut user_string = String::from(word);
+                    let mut j = 1;
+                    let mut next_word = words[i+j];
+                    while !next_word.ends_with("\"") {
+                        user_string.push_str(" ");
+                        user_string.push_str(next_word);
+                        j += 1;
+                        next_word = words[i+j];
+                    }
+                    user_string.push_str(" ");
+                    user_string.push_str(next_word);
+                    tokens.push(Token { id: TokenId::Text, itself: Some(user_string) } );
                 }
+                continue;
             }
-            TokenId::Text => {
-                match tok.itself {
-                    Some("DUP") =>  { opcodes.push(Instruction::OpCode(OpCode::Dup)) },
-                    Some("DROP") => { opcodes.push(Instruction::OpCode(OpCode::Drop)) },
-                    Some("SWAP") => { opcodes.push(Instruction::OpCode(OpCode::Swap)) },
-                    Some("OVER") => { opcodes.push(Instruction::OpCode(OpCode::Over)) },
-                    Some("PRINT") => { opcodes.push(Instruction::OpCode(OpCode::Print)) },
-                    Some("POP") => { opcodes.push(Instruction::OpCode(OpCode::Pop)) },
-                    Some("EXIT") => { opcodes.push(Instruction::OpCode(OpCode::Exit)) },
-                    Some(itself) => {
-                        if declaration_mode {
-                            opcodes.push(Instruction::OpCode(OpCode::Define));
-                            opcodes.push(Instruction::Value(Value::Str(String::from(itself))));
-                            declaration_mode = false;
-                            definition_mode = true;
-                        } else if definition_mode {
-                            opcodes.push(Instruction::OpCode(OpCode::Assign));
-                            opcodes.push(Instruction::Value(Value::Str(String::from(itself))));
-                            definition_mode = false;
-                        } else {
-                            opcodes.push(Instruction::OpCode(OpCode::Push));
-                            opcodes.push(Instruction::Value(Value::Str(String::from(itself))));
-                        }
-                    },
-                    None => {},
-                } 
+
+            if word.ends_with("\"") {
+                continue;
             }
-        }
-    }
 
-    opcodes
-}
-
-fn parse(command: &str) -> Vec<Token> {
-    let mut tokens = vec![];
-    for word in command.split_ascii_whitespace() {
-        match word.parse::<i32>() {
-            Ok(_) => tokens.push(Token { id : TokenId::Digit, itself: Some(word) }),
-            Err(_) => {
-                match word {
-                    "+" => tokens.push(Token { id: TokenId::Plus, itself: None } ),
-                    "-" => tokens.push(Token { id: TokenId::Minus, itself: None } ),
-                    "*" => tokens.push(Token { id: TokenId::Star, itself: None } ),
-                    "/" => tokens.push(Token { id: TokenId::Slash, itself: None } ),
-                    ":" => tokens.push(Token { id: TokenId::Colon, itself: None } ),
-                    ";" => tokens.push(Token { id: TokenId::Semicolon, itself: None } ),
-                    "DUP"|"DROP"|"SWAP"|"OVER"|"PRINT"|"POP"|"EXIT" => tokens.push(Token { id: TokenId::Text, itself: Some(word) } ),
-                    _ => tokens.push(Token { id: TokenId::Text, itself: Some(&word[1..word.len()-1]) } ),
+            match word.parse::<i32>() {
+                Ok(_) => tokens.push(Token { id : TokenId::Digit, itself: Some(String::from(word)) }),
+                Err(_) => {
+                    match word {
+                        "+" => tokens.push(Token { id: TokenId::Plus, itself: None } ),
+                        "-" => tokens.push(Token { id: TokenId::Minus, itself: None } ),
+                        "*" => tokens.push(Token { id: TokenId::Star, itself: None } ),
+                        "/" => tokens.push(Token { id: TokenId::Slash, itself: None } ),
+                        ":" => tokens.push(Token { id: TokenId::Colon, itself: None } ),
+                        ";" => tokens.push(Token { id: TokenId::Semicolon, itself: None } ),
+                        "DUP"|"DROP"|"SWAP"|"OVER"|"PRINT"|"POP"|"EXIT" => tokens.push(Token { id: TokenId::Text, itself: Some(String::from(word)) } ),
+                        _ => tokens.push(Token { id: TokenId::Text, itself: Some(String::from(&word[1..word.len()-1])) } ),
+                    }
                 }
             }
         }
+        tokens
     }
-    tokens
 }
 
 fn main() -> io::Result<()> {
@@ -291,14 +325,9 @@ fn main() -> io::Result<()> {
         let _ = io::stdout().flush();
         io::stdin().read_line(&mut buffer)?;
         buffer = buffer.to_uppercase();
-        let tokens = parse(&buffer);
-        let code = codegen(&tokens);
-        // println!("tokens: {:?}", &tokens);
-        // println!("code: {:?}", &code);
-        if vm.execute(&code) {
+        if vm.exec(&buffer) {
             break;
         }
-        // println!("vm: {:?}", &vm);
         buffer.clear();
         println!("{:?}", vm.stack());
     }
