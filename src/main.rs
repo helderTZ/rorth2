@@ -114,6 +114,10 @@ impl VirtualMachine {
         Self { stack: vec![], ip: 0 }
     }
 
+    fn stack(&self) -> &Vec<Value> {
+        &self.stack
+    }
+
     fn execute(&mut self, instructions: &Vec<Instruction>) -> bool {
         self.ip = 0;
         let mut should_exit = false;
@@ -147,6 +151,31 @@ impl VirtualMachine {
                         self.stack.push(a/b);
                         self.ip += 1;
                     },
+                    Instruction::OpCode(OpCode::Dup) => {
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(a.clone());
+                        self.stack.push(a);
+                        self.ip += 1;
+                    },
+                    Instruction::OpCode(OpCode::Drop) => {
+                        let _ = self.stack.pop();
+                        self.ip += 1;
+                    },
+                    Instruction::OpCode(OpCode::Swap) => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(b);
+                        self.stack.push(a);
+                        self.ip += 1;
+                    },
+                    Instruction::OpCode(OpCode::Over) => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(a.clone());
+                        self.stack.push(b);
+                        self.stack.push(a);
+                        self.ip += 1;
+                    },
                     Instruction::OpCode(OpCode::Push) => {
                         let a = instructions[self.ip+1].clone();
                         self.stack.push(a.get_value().expect("Expected a Value in the stack"));
@@ -157,7 +186,7 @@ impl VirtualMachine {
                         self.ip += 1;
                     },
                     Instruction::OpCode(OpCode::Print) => {
-                        println!("[ {:?} ]", self.stack.last().unwrap_or(&Value::Str(String::new())));
+                        println!("{:?}", self.stack);
                         let _ = io::stdout().flush();
                         self.ip += 1;
                     },
@@ -271,6 +300,7 @@ fn main() -> io::Result<()> {
         }
         // println!("vm: {:?}", &vm);
         buffer.clear();
+        println!("{:?}", vm.stack());
     }
 
     Ok(())
